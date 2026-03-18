@@ -26,6 +26,22 @@ $navbar[1]['URL'] = 'index.php';
 $navbar[2]['Name'] = $L['NAVBAR.SECOND'];
 $navbar[2]['URL'] = 'log.php';
 
+if ($_POST['save_settings']) {
+  $serialcfg = $lbpconfigdir. '/mbusd.cfg';
+  $scfg = new Config_Lite("$serialcfg");
+  $scfg->setQuoteStrings(True);
+  $newpath = $_POST['serialpath'];
+  if ($newpath == 'custom') {
+    $newpath = $_POST['serialpath_custom'];
+  }
+  if (substr($newpath, -1) !== '/') {
+    $newpath .= '/';
+  }
+  $scfg->set(null, "SERIAL", $newpath);
+  $scfg->save();
+  $settings_saved = true;
+}
+
 if ($_POST['req_start']) {
   $command = 'sudo '. $lbpbindir. '/service.sh start mbusd@'. $_POST[device]. '.service';
   $cmdstat = shell_exec($command);
@@ -189,6 +205,37 @@ else {
       }
     }
   }
+
+  //SETTINGS
+  echo '<br><br>';
+  echo '<p class="wide">'. $L['SETTINGS.HEAD']. '</p>';
+  echo '<div class="ui-corner-all ui-shadow">';
+  $serialcfg = $lbpconfigdir. '/mbusd.cfg';
+  $scfg = new Config_Lite("$serialcfg");
+  $currentserial = $scfg->get(null, "SERIAL");
+  if (!$currentserial) {
+    $currentserial = '/dev/serial/by-id/';
+  }
+  $presets = array('/dev/serial/by-id/', '/dev/serial/by-path/', '/dev/');
+  $is_preset = in_array($currentserial, $presets);
+  echo '<form action="index.php" method="post">';
+  echo '<label for="serialpath">'. $L['SETTINGS.SERIAL1']. ' <i>('. $L['SETTINGS.SERIAL2']. ')</i></label>';
+  echo '<select data-inline="true" data-mini="true" name="serialpath" id="serialpath">';
+  foreach ($presets as $p) {
+    $sel = ($is_preset && $currentserial == $p) ? ' selected' : '';
+    echo '<option value="'. $p. '"'. $sel. '>'. $p. '</option>';
+  }
+  $customsel = !$is_preset ? ' selected' : '';
+  echo '<option value="custom"'. $customsel. '>'. $L['SETTINGS.SERIAL_CUSTOM']. '</option>';
+  echo '</select>';
+  $customval = !$is_preset ? $currentserial : '';
+  echo '<input data-inline="true" data-mini="true" name="serialpath_custom" id="serialpath_custom" placeholder="/dev/ttyAMA0" value="'. $customval. '" type="text">';
+  if (isset($settings_saved)) {
+    echo '<p style="color:green;font-weight:bold;">'. $L['SETTINGS.SAVED']. '</p>';
+  }
+  echo '<input data-role="button" data-inline="true" data-mini="true" type="submit" name="save_settings" value="'. $L['SETTINGS.SAVE']. '">';
+  echo '</form>';
+  echo '</div>';
 
   //DETAILS
   if ($found) {
