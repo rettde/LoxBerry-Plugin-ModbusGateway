@@ -43,12 +43,17 @@ if ($_POST['save_settings']) {
 }
 
 if ($_POST['req_start']) {
-  $command = 'sudo '. $lbpbindir. '/service.sh start mbusd@'. $_POST[device]. '.service';
-  $cmdstat = shell_exec($command);
-  $command = 'sudo '. $lbpbindir. '/service.sh enable mbusd@'. $_POST[device]. '.service';
-  $cmdstat = shell_exec($command);
-  header ("Location: index.php");
-  exit;
+  $dev_conflict = zmata_device_in_use($lbpconfigdir, $_POST[device]);
+  if ($dev_conflict) {
+    $device_error = $_POST[device]. ' is in use by: '. $dev_conflict;
+  } else {
+    $command = 'sudo '. $lbpbindir. '/service.sh start mbusd@'. $_POST[device]. '.service';
+    $cmdstat = shell_exec($command);
+    $command = 'sudo '. $lbpbindir. '/service.sh enable mbusd@'. $_POST[device]. '.service';
+    $cmdstat = shell_exec($command);
+    header ("Location: index.php");
+    exit;
+  }
 }
 
 if ($_POST['req_stop']) {
@@ -70,9 +75,14 @@ if ($_POST['save_new']) {
 
 if ($_POST['change']) {
   $conflict = zmata_port_in_use($lbpconfigdir, $_POST['port'], $_POST['device']);
+  $dev_conflict = zmata_device_in_use($lbpconfigdir, $_POST['device']);
   if ($conflict) {
-    $port_error = 'TCP port '. $_POST['port']. ' is already used by device: '. $conflict;
-  } else {
+    $port_error = 'TCP port '. $_POST['port']. ' is already used by: '. $conflict;
+  }
+  if ($dev_conflict) {
+    $device_error = $_POST['device']. ' is in use by: '. $dev_conflict;
+  }
+  if (!$conflict && !$dev_conflict) {
     zmata_conf($lbpconfigdir, $_POST[device], $_POST['speed'], $_POST['mode'], $_POST['trx_control'], $_POST['port'], $_POST['maxconn'], $_POST['timeout'], $_POST['retries'], $_POST['pause'], $_POST['wait']);  
     zmata_cfg($lbpconfigdir, $_POST[device], $_POST['loglevel']);
 
@@ -188,6 +198,11 @@ else {
       echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="check" type="submit" name="req_start" value='. $L['GATEWAYS.START']. '>';
       echo $cmd;
     }
+    // check for serial device conflict with other processes
+    $dev_lock = zmata_device_in_use($lbpconfigdir, $device);
+    if ($dev_lock) {
+      echo '<p style="color:orange;font-weight:bold;">⚠ Device in use by: '. $dev_lock. '</p>';
+    }
     echo '</form>';
     echo '</div>';
 
@@ -248,6 +263,9 @@ else {
     echo '<div>';
     if (isset($port_error)) {
       echo '<p style="color:red;font-weight:bold;">'. $port_error. '</p>';
+    }
+    if (isset($device_error)) {
+      echo '<p style="color:red;font-weight:bold;">'. $device_error. '</p>';
     }
     echo '<p><b>'. $L['GATEWAYS.DEVICE']. ': '. $gwdevice. '</b></p>';
     $speed=$cfg->get(null,"speed");

@@ -29,6 +29,14 @@ function zmata_conf($confdir, $device, $speed, $mode, $trx_control, $port, $maxc
   $cfg->save();
 }
 
+function zmata_system_port_used($port) {
+  $out = shell_exec('ss -tlnH sport = :'. intval($port). ' 2>/dev/null');
+  if ($out === null) {
+    $out = shell_exec('netstat -tlnp 2>/dev/null | grep :'. intval($port). ' ');
+  }
+  return !empty(trim($out));
+}
+
 function zmata_next_port($confdir, $baseport = 502) {
   $usedports = array();
   $mask = $confdir. '/mbusd-*.conf';
@@ -40,7 +48,7 @@ function zmata_next_port($confdir, $baseport = 502) {
     }
   }
   $port = $baseport;
-  while (in_array($port, $usedports)) {
+  while (in_array($port, $usedports) || zmata_system_port_used($port)) {
     $port++;
   }
   return strval($port);
@@ -58,6 +66,37 @@ function zmata_port_in_use($confdir, $port, $excludedevice = null) {
       if ($excludedevice === null || $dev !== $excludedevice) {
         return $dev;
       }
+    }
+  }
+  if (zmata_system_port_used($port)) {
+    return 'SYSTEM (another service)';
+  }
+  return false;
+}
+
+function zmata_device_in_use($confdir, $device) {
+  $serialcfg = $confdir. '/mbusd.cfg';
+  $scfg = new Config_Lite("$serialcfg");
+  $serialpath = $scfg->get(null, "SERIAL");
+  if (!$serialpath) {
+    $serialpath = '/dev/serial/by-id/';
+  }
+  $devpath = $serialpath. $device;
+  $out = shell_exec('fuser '. escapeshellarg($devpath). ' 2>/dev/null');
+  if (!empty(trim($out))) {
+    $pids = trim($out);
+    $procs = array();
+    foreach (explode(' ', $pids) as $pid) {
+      $pid = trim($pid);
+      if (!empty($pid) && is_numeric($pid)) {
+        $name = trim(shell_exec('ps -p '. intval($pid). ' -o comm= 2>/dev/null'));
+        if (!empty($name) && $name !== 'mbusd') {
+          $procs[] = $name. ' (PID '. $pid. ')';
+        }
+      }
+    }
+    if (!empty($procs)) {
+      return implode(', ', $procs);
     }
   }
   return false;
