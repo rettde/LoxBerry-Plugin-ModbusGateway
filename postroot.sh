@@ -63,7 +63,7 @@ echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
 echo "<INFO> Installing mbusd..."
 
 # Try to install mbusd from system package repositories first
-if apt-get install -y mbusd 2>/dev/null; then
+if apt-get install -y mbusd; then
   echo "<OK> mbusd installed from system repositories"
 else
   echo "<WARNING> mbusd not available in repos, trying bundled .deb package"
@@ -80,8 +80,8 @@ else
     arm64)
       # Try armhf package with multiarch support
       echo "<INFO> No native arm64 .deb available, attempting armhf with multiarch"
-      dpkg --add-architecture armhf 2>/dev/null
-      apt-get update -qq 2>/dev/null
+      dpkg --add-architecture armhf
+      apt-get update -qq
       DEBFILE="dpkg/raspberry/mbusd-Linux_armv7l-v0.4.1.deb"
       ;;
     *)
@@ -92,18 +92,17 @@ else
   esac
 
   if [ -n "$DEBFILE" ] && [ -f "$DEBFILE" ]; then
-    if dpkg -i "$DEBFILE" 2>/dev/null; then
+    if dpkg -i "$DEBFILE"; then
       echo "<OK> mbusd installed from bundled .deb ($DEBFILE)"
     else
       echo "<WARNING> Bundled .deb failed, trying to build mbusd from source"
-      apt-get install -y cmake build-essential 2>/dev/null
+      apt-get install -y cmake build-essential
       MBUSD_TMP=$(mktemp -d)
-      if git clone --depth 1 https://github.com/3cky/mbusd.git "$MBUSD_TMP/mbusd" 2>/dev/null; then
+      if git clone --depth 1 https://github.com/3cky/mbusd.git "$MBUSD_TMP/mbusd"; then
         mkdir -p "$MBUSD_TMP/mbusd/build"
         cd "$MBUSD_TMP/mbusd/build"
-        cmake .. -DCMAKE_INSTALL_PREFIX=/usr 2>/dev/null
-        make 2>/dev/null && make install 2>/dev/null
-        if [ $? -eq 0 ]; then
+        cmake .. -DCMAKE_INSTALL_PREFIX=/usr
+        if make && make install; then
           echo "<OK> mbusd built and installed from source"
         else
           echo "<ERROR> Failed to build mbusd from source"
@@ -126,6 +125,7 @@ fi
 
 echo "<INFO> Updating systemd service config"
 cp dpkg/mbusd.service /lib/systemd/system/mbusd\@.service
+sed -i "s|REPLACELBPCONFIGDIR|${LBPCONFIG}/${PDIR}|g" /lib/systemd/system/mbusd\@.service
 echo "<INFO> Reloading systemd config"
 systemctl daemon-reload
 

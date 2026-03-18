@@ -26,7 +26,33 @@ $navbar[1]['URL'] = 'index.php';
 $navbar[2]['Name'] = $L['NAVBAR.SECOND'];
 $navbar[2]['URL'] = 'log.php';
 
+// CSRF token
+session_start();
+if (empty($_SESSION['csrf_token'])) {
+  $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrf_token = $_SESSION['csrf_token'];
+
+function zmata_csrf_field() {
+  global $csrf_token;
+  return '<input type="hidden" name="csrf_token" value="'. $csrf_token. '">';
+}
+
+function zmata_csrf_check() {
+  global $csrf_token;
+  if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $csrf_token) {
+    die('CSRF token mismatch');
+  }
+}
+
+// Validate device name from POST
+$post_device = isset($_POST['device']) ? $_POST['device'] : '';
+if (!empty($post_device) && !zmata_validate_device($post_device)) {
+  die('Invalid device name');
+}
+
 if ($_POST['save_settings']) {
+  zmata_csrf_check();
   $serialcfg = $lbpconfigdir. '/mbusd.cfg';
   $scfg = new Config_Lite("$serialcfg");
   $scfg->setQuoteStrings(True);
@@ -43,13 +69,14 @@ if ($_POST['save_settings']) {
 }
 
 if ($_POST['req_start']) {
-  $dev_conflict = zmata_device_in_use($lbpconfigdir, $_POST[device]);
+  zmata_csrf_check();
+  $dev_conflict = zmata_device_in_use($lbpconfigdir, $post_device);
   if ($dev_conflict) {
-    $device_error = $_POST[device]. ' is in use by: '. $dev_conflict;
+    $device_error = $post_device. ' is in use by: '. $dev_conflict;
   } else {
-    $command = 'sudo '. $lbpbindir. '/service.sh start mbusd@'. $_POST[device]. '.service';
+    $command = 'sudo '. escapeshellarg($lbpbindir. '/service.sh'). ' start '. escapeshellarg('mbusd@'. $post_device. '.service');
     $cmdstat = shell_exec($command);
-    $command = 'sudo '. $lbpbindir. '/service.sh enable mbusd@'. $_POST[device]. '.service';
+    $command = 'sudo '. escapeshellarg($lbpbindir. '/service.sh'). ' enable '. escapeshellarg('mbusd@'. $post_device. '.service');
     $cmdstat = shell_exec($command);
     header ("Location: index.php");
     exit;
@@ -57,36 +84,39 @@ if ($_POST['req_start']) {
 }
 
 if ($_POST['req_stop']) {
-  $command = 'sudo '. $lbpbindir. '/service.sh stop mbusd@'. $_POST[device]. '.service';
+  zmata_csrf_check();
+  $command = 'sudo '. escapeshellarg($lbpbindir. '/service.sh'). ' stop '. escapeshellarg('mbusd@'. $post_device. '.service');
   $cmdstat = shell_exec($command);
-  $command = 'sudo '. $lbpbindir. '/service.sh disable mbusd@'. $_POST[device]. '.service';
+  $command = 'sudo '. escapeshellarg($lbpbindir. '/service.sh'). ' disable '. escapeshellarg('mbusd@'. $post_device. '.service');
   $cmdstat = shell_exec($command);
   header ("Location: index.php");
   exit;
 }
 
 if ($_POST['save_new']) {
+  zmata_csrf_check();
   $nextport = zmata_next_port($lbpconfigdir);
-  zmata_conf($lbpconfigdir, $_POST[device], '9600', '8n1', 'addc', $nextport, '32', '60', '3', '100', '500');
-  zmata_cfg($lbpconfigdir, $_POST[device], '2');
+  zmata_conf($lbpconfigdir, $post_device, '9600', '8n1', 'addc', $nextport, '32', '60', '3', '100', '500');
+  zmata_cfg($lbpconfigdir, $post_device, '2');
   header ("Location: index.php");
   exit;
 }
 
 if ($_POST['change']) {
-  $conflict = zmata_port_in_use($lbpconfigdir, $_POST['port'], $_POST['device']);
-  $dev_conflict = zmata_device_in_use($lbpconfigdir, $_POST['device']);
+  zmata_csrf_check();
+  $conflict = zmata_port_in_use($lbpconfigdir, $_POST['port'], $post_device);
+  $dev_conflict = zmata_device_in_use($lbpconfigdir, $post_device);
   if ($conflict) {
-    $port_error = 'TCP port '. $_POST['port']. ' is already used by: '. $conflict;
+    $port_error = 'TCP port '. zmata_sanitize_html($_POST['port']). ' is already used by: '. zmata_sanitize_html($conflict);
   }
   if ($dev_conflict) {
-    $device_error = $_POST['device']. ' is in use by: '. $dev_conflict;
+    $device_error = zmata_sanitize_html($post_device). ' is in use by: '. zmata_sanitize_html($dev_conflict);
   }
   if (!$conflict && !$dev_conflict) {
-    zmata_conf($lbpconfigdir, $_POST[device], $_POST['speed'], $_POST['mode'], $_POST['trx_control'], $_POST['port'], $_POST['maxconn'], $_POST['timeout'], $_POST['retries'], $_POST['pause'], $_POST['wait']);  
-    zmata_cfg($lbpconfigdir, $_POST[device], $_POST['loglevel']);
+    zmata_conf($lbpconfigdir, $post_device, $_POST['speed'], $_POST['mode'], $_POST['trx_control'], $_POST['port'], $_POST['maxconn'], $_POST['timeout'], $_POST['retries'], $_POST['pause'], $_POST['wait']);  
+    zmata_cfg($lbpconfigdir, $post_device, $_POST['loglevel']);
 
-    $command = 'sudo '. $lbpbindir. '/service.sh restart mbusd@'. $_POST[device]. '.service';
+    $command = 'sudo '. escapeshellarg($lbpbindir. '/service.sh'). ' restart '. escapeshellarg('mbusd@'. $post_device. '.service');
     $cmdstat = shell_exec($command);
     header ("Location: index.php");
     exit;
@@ -94,12 +124,17 @@ if ($_POST['change']) {
 }
 
 if ($_POST['save_del']) {
+  zmata_csrf_check();
   //conf
-  $cfgfile = $lbpconfigdir. '/mbusd-'.  $_POST['device']. '.conf';
-  unlink($cfgfile);
+  $cfgfile = $lbpconfigdir. '/mbusd-'. $post_device. '.conf';
+  if (file_exists($cfgfile) && dirname(realpath($cfgfile)) === realpath($lbpconfigdir)) {
+    unlink($cfgfile);
+  }
   //cfg
-  $cfgfile = $lbpconfigdir. '/mbusd-'.  $_POST['device']. '.cfg';
-  unlink($cfgfile);
+  $cfgfile = $lbpconfigdir. '/mbusd-'. $post_device. '.cfg';
+  if (file_exists($cfgfile) && dirname(realpath($cfgfile)) === realpath($lbpconfigdir)) {
+    unlink($cfgfile);
+  }
 
   header ("Location: index.php");
   exit;
@@ -129,11 +164,12 @@ if ($_POST['req_new']) {
         $file = 'mbusd-'. $device. '.conf';
         echo '<div class="ui-corner-all ui-shadow">';
         echo '<form action="index.php" method="post">';
-        echo '<input type="hidden" name="device" value="'. $device. '">';
+        echo zmata_csrf_field();
+        echo '<input type="hidden" name="device" value="'. zmata_sanitize_html($device). '">';
         if (file_exists($lbpconfigdir. '/'. $file))
-          echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="info" type="submit" name="return" value='. $device. '>'. $L['GWNEW.EXIST'];
+          echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="info" type="submit" name="return" value='. zmata_sanitize_html($device). '>'. $L['GWNEW.EXIST'];
         else
-          echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="plus" type="submit" name="save_new" value='. $device. '>';
+          echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="plus" type="submit" name="save_new" value='. zmata_sanitize_html($device). '>';
         echo '</form>';
         echo '</div>';
       }
@@ -147,9 +183,10 @@ elseif ($_POST['req_del']) {
   echo '<p class="wide">'. $L['GWDEL.HEAD']. '</p>';
   echo '<div class="ui-corner-all ui-shadow">';
   echo '<form action="index.php" method="post">';
-  echo '<input type="hidden" name="device" value="'. $_POST['device']. '">';
+  echo zmata_csrf_field();
+  echo '<input type="hidden" name="device" value="'. zmata_sanitize_html($post_device). '">';
   if ($_POST['status'] == 'inacti') {
-    echo '<p>'. $L['GWDEL.TEXT']. ' '. $_POST['device']. '</p>';
+    echo '<p>'. $L['GWDEL.TEXT']. ' '. zmata_sanitize_html($post_device). '</p>';
     echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="delete" type="submit" name="save_del" value='. $L['GWDEL.DELETE']. '>';
   }
   else {
@@ -174,22 +211,22 @@ else {
   if ($_POST['show_detail'])
     $gwdevice = $_POST['show_detail'];
 
-  $mask = $lbpconfigdir. "/". "*.conf";
+  $mask = $lbpconfigdir. "/mbusd-*.conf";
   foreach (glob($mask) as $file) {
     // read conf file
     $cfg = new Config_Lite("$file");
     $devfile=$cfg->get(null,"device");
-    $devfile_aray = explode("/",$devfile);
-    $device = $devfile_aray[4];
-    $command = $lbpbindir. '/service.sh status mbusd@'. $device. '.service  | grep Active';
+    $device = basename($devfile);
+    $command = escapeshellarg($lbpbindir. '/service.sh'). ' status '. escapeshellarg('mbusd@'. $device. '.service'). ' | grep Active';
     $cmd = shell_exec($command);
     $status = substr($cmd,11,6);
     echo '<div class="ui-corner-all ui-shadow ui-field-contain">';
     echo '<form action="index.php" method="post">';
-    echo '<input type="hidden" name="device" value="'. $device. '">';
-    echo '<input type="hidden" name="status" value="'. $status. '">';
+    echo zmata_csrf_field();
+    echo '<input type="hidden" name="device" value="'. zmata_sanitize_html($device). '">';
+    echo '<input type="hidden" name="status" value="'. zmata_sanitize_html($status). '">';
     echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="delete" type="submit" name="req_del" value='. $L['GATEWAYS.DEL']. '>';
-    echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="info" type="submit" name="show_detail" value='. $device. '>';
+    echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="info" type="submit" name="show_detail" value='. zmata_sanitize_html($device). '>';
     if (substr($cmd,3,16) == 'Active: inactive')
       echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="check" type="submit" name="req_start" value='. $L['GATEWAYS.START']. '>';
     elseif (substr($cmd,3,15) == 'Active: active ') 
@@ -201,7 +238,7 @@ else {
     // check for serial device conflict with other processes
     $dev_lock = zmata_device_in_use($lbpconfigdir, $device);
     if ($dev_lock) {
-      echo '<p style="color:orange;font-weight:bold;">⚠ Device in use by: '. $dev_lock. '</p>';
+      echo '<p style="color:orange;font-weight:bold;">⚠ Device in use by: '. zmata_sanitize_html($dev_lock). '</p>';
     }
     echo '</form>';
     echo '</div>';
@@ -215,7 +252,7 @@ else {
     if (!file_exists($filecfg)) {
       zmata_cfg($lbpconfigdir, $gwdevice, '2');
       if ($_POST['status'] != 'inacti') {
-        $command = 'sudo '. $lbpbindir. '/service.sh restart mbusd@'. $_POST[device]. '.service';
+        $command = 'sudo '. escapeshellarg($lbpbindir. '/service.sh'). ' restart '. escapeshellarg('mbusd@'. $post_device. '.service');
         $cmdstat = shell_exec($command);
       }
     }
@@ -234,6 +271,7 @@ else {
   $presets = array('/dev/serial/by-id/', '/dev/serial/by-path/', '/dev/');
   $is_preset = in_array($currentserial, $presets);
   echo '<form action="index.php" method="post">';
+  echo zmata_csrf_field();
   echo '<label for="serialpath">'. $L['SETTINGS.SERIAL1']. ' <i>('. $L['SETTINGS.SERIAL2']. ')</i></label>';
   echo '<select data-inline="true" data-mini="true" name="serialpath" id="serialpath">';
   foreach ($presets as $p) {
@@ -267,7 +305,7 @@ else {
     if (isset($device_error)) {
       echo '<p style="color:red;font-weight:bold;">'. $device_error. '</p>';
     }
-    echo '<p><b>'. $L['GATEWAYS.DEVICE']. ': '. $gwdevice. '</b></p>';
+    echo '<p><b>'. $L['GATEWAYS.DEVICE']. ': '. zmata_sanitize_html($gwdevice). '</b></p>';
     $speed=$cfg->get(null,"speed");
     $mode=$cfg->get(null,"mode");
     $trx_control=$cfg->get(null,"trx_control");
@@ -279,8 +317,9 @@ else {
     $wait=$cfg->get(null,"wait");
     //write form
     echo '<form action="index.php" method="post">';
+    echo zmata_csrf_field();
     echo '<label for="speed">'. $L['GWDETAIL.SPEED1']. ' <i>('. $L['GWDETAIL.SPEED2']. ')</i></label>';
-    echo '<input type="hidden" name="device" value="'. $gwdevice. '">';
+    echo '<input type="hidden" name="device" value="'. zmata_sanitize_html($gwdevice). '">';
     echo '<select data-inline="true" data-mini="true" name="speed" id="speed">';
       echo zmata_option_set("1200",   "", "", $speed);
       echo zmata_option_set("2400",   "", "", $speed);

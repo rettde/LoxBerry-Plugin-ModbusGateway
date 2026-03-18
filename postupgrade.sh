@@ -44,7 +44,6 @@ PLOG=$LBPLOG/$PDIR # Note! This is stored on a Ramdisk now!
 PCONFIG=$LBPCONFIG/$PDIR
 PSBIN=$LBPSBIN/$PDIR
 PBIN=$LBPBIN/$PDIR
-PTEMPDIR
 
 # To use important variables from command line use the following code:
 ARGV0=$0 # Zero argument is shell command

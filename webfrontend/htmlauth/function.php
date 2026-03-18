@@ -3,6 +3,20 @@
 //require_once "loxberry_web.php";
 require_once "Config/Lite.php";
 
+function zmata_validate_device($device) {
+  if (!preg_match('/^[a-zA-Z0-9._:-]+$/', $device)) {
+    return false;
+  }
+  if (strpos($device, '..') !== false) {
+    return false;
+  }
+  return true;
+}
+
+function zmata_sanitize_html($str) {
+  return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+}
+
 function zmata_conf($confdir, $device, $speed, $mode, $trx_control, $port, $maxconn, $timeout, $retries, $pause, $wait) {
   // read cfg global file
   $serialcfg = $confdir. '/mbusd.cfg';
