@@ -32,6 +32,7 @@ if ($_POST['req_start']) {
   $command = 'sudo '. $lbpbindir. '/service.sh enable mbusd@'. $_POST[device]. '.service';
   $cmdstat = shell_exec($command);
   header ("Location: index.php");
+  exit;
 }
 
 if ($_POST['req_stop']) {
@@ -40,21 +41,30 @@ if ($_POST['req_stop']) {
   $command = 'sudo '. $lbpbindir. '/service.sh disable mbusd@'. $_POST[device]. '.service';
   $cmdstat = shell_exec($command);
   header ("Location: index.php");
+  exit;
 }
 
 if ($_POST['save_new']) {
-  zmata_conf($lbpconfigdir, $_POST[device], '9600', '8n1', 'addc', '502', '32', '60', '3', '100', '500');
+  $nextport = zmata_next_port($lbpconfigdir);
+  zmata_conf($lbpconfigdir, $_POST[device], '9600', '8n1', 'addc', $nextport, '32', '60', '3', '100', '500');
   zmata_cfg($lbpconfigdir, $_POST[device], '2');
   header ("Location: index.php");
+  exit;
 }
 
 if ($_POST['change']) {
-  zmata_conf($lbpconfigdir, $_POST[device], $_POST['speed'], $_POST['mode'], $_POST['trx_control'], $_POST['port'], $_POST['maxconn'], $_POST['timeout'], $_POST['retries'], $_POST['pause'], $_POST['wait']);  
-  zmata_cfg($lbpconfigdir, $_POST[device], $_POST['loglevel']);
+  $conflict = zmata_port_in_use($lbpconfigdir, $_POST['port'], $_POST['device']);
+  if ($conflict) {
+    $port_error = 'TCP port '. $_POST['port']. ' is already used by device: '. $conflict;
+  } else {
+    zmata_conf($lbpconfigdir, $_POST[device], $_POST['speed'], $_POST['mode'], $_POST['trx_control'], $_POST['port'], $_POST['maxconn'], $_POST['timeout'], $_POST['retries'], $_POST['pause'], $_POST['wait']);  
+    zmata_cfg($lbpconfigdir, $_POST[device], $_POST['loglevel']);
 
-  $command = 'sudo '. $lbpbindir. '/service.sh restart mbusd@'. $_POST[device]. '.service';
-  $cmdstat = shell_exec($command);
-  header ("Location: index.php");
+    $command = 'sudo '. $lbpbindir. '/service.sh restart mbusd@'. $_POST[device]. '.service';
+    $cmdstat = shell_exec($command);
+    header ("Location: index.php");
+    exit;
+  }
 }
 
 if ($_POST['save_del']) {
@@ -66,6 +76,7 @@ if ($_POST['save_del']) {
   unlink($cfgfile);
 
   header ("Location: index.php");
+  exit;
 }
 
 // NAVBAR
@@ -188,6 +199,9 @@ else {
     $cfg = new Config_Lite("$file");
     $devfile=$cfg->get(null,"device");
     echo '<div>';
+    if (isset($port_error)) {
+      echo '<p style="color:red;font-weight:bold;">'. $port_error. '</p>';
+    }
     echo '<p><b>'. $L['GATEWAYS.DEVICE']. ': '. $gwdevice. '</b></p>';
     $speed=$cfg->get(null,"speed");
     $mode=$cfg->get(null,"mode");
