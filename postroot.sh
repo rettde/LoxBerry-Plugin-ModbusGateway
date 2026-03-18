@@ -60,6 +60,70 @@ echo "<INFO> Plugin Data folder is: $PDATA"
 echo "<INFO> Plugin Log folder (on RAMDISK!) is: $PLOG"
 echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
 
+echo "<INFO> Installing mbusd..."
+
+# Try to install mbusd from system package repositories first
+if apt-get install -y mbusd 2>/dev/null; then
+  echo "<OK> mbusd installed from system repositories"
+else
+  echo "<WARNING> mbusd not available in repos, trying bundled .deb package"
+  ARCH=$(dpkg --print-architecture)
+  echo "<INFO> Detected architecture: $ARCH"
+
+  case "$ARCH" in
+    armhf)
+      DEBFILE="dpkg/raspberry/mbusd-Linux_armv7l-v0.4.1.deb"
+      ;;
+    amd64)
+      DEBFILE="dpkg/x64/mbusd-Linux_x86_64-v0.4.1.deb"
+      ;;
+    arm64)
+      # Try armhf package with multiarch support
+      echo "<INFO> No native arm64 .deb available, attempting armhf with multiarch"
+      dpkg --add-architecture armhf 2>/dev/null
+      apt-get update -qq 2>/dev/null
+      DEBFILE="dpkg/raspberry/mbusd-Linux_armv7l-v0.4.1.deb"
+      ;;
+    *)
+      echo "<ERROR> Unsupported architecture: $ARCH"
+      echo "<ERROR> Please install mbusd manually: apt-get install mbusd"
+      DEBFILE=""
+      ;;
+  esac
+
+  if [ -n "$DEBFILE" ] && [ -f "$DEBFILE" ]; then
+    if dpkg -i "$DEBFILE" 2>/dev/null; then
+      echo "<OK> mbusd installed from bundled .deb ($DEBFILE)"
+    else
+      echo "<WARNING> Bundled .deb failed, trying to build mbusd from source"
+      apt-get install -y cmake build-essential 2>/dev/null
+      MBUSD_TMP=$(mktemp -d)
+      if git clone --depth 1 https://github.com/3cky/mbusd.git "$MBUSD_TMP/mbusd" 2>/dev/null; then
+        mkdir -p "$MBUSD_TMP/mbusd/build"
+        cd "$MBUSD_TMP/mbusd/build"
+        cmake .. -DCMAKE_INSTALL_PREFIX=/usr 2>/dev/null
+        make 2>/dev/null && make install 2>/dev/null
+        if [ $? -eq 0 ]; then
+          echo "<OK> mbusd built and installed from source"
+        else
+          echo "<ERROR> Failed to build mbusd from source"
+        fi
+        cd -
+      else
+        echo "<ERROR> Failed to clone mbusd source"
+      fi
+      rm -rf "$MBUSD_TMP"
+    fi
+  fi
+fi
+
+# Verify mbusd is available
+if command -v mbusd >/dev/null 2>&1; then
+  echo "<OK> mbusd is available at: $(which mbusd)"
+else
+  echo "<ERROR> mbusd could not be installed. Plugin will not work."
+fi
+
 echo "<INFO> Updating systemd service config"
 cp dpkg/mbusd.service /lib/systemd/system/mbusd\@.service
 echo "<INFO> Reloading systemd config"
