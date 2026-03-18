@@ -6,7 +6,7 @@ require_once "Config/Lite.php";
 $L = LBWeb::readlanguage("language.ini");
 
 $template_title = "Modbus Gateway";
-$helplink = "http://www.loxwiki.eu/display/LOXBERRY/Modbus+Gateway";
+$helplink = $L['LINKS.WIKI'];
 $helptemplate = "pluginhelp.html";
 
 $navbar[1]['Name'] = $L['NAVBAR.FIRST'];
@@ -28,7 +28,7 @@ if ($handle = opendir($lbplogdir)) {
     while (false !== ($entry = readdir($handle))) {
         if ($entry != "." && $entry != "..") {
           echo '<div class="ui-corner-all ui-shadow">';
-          echo '<a id="btnlogs" data-role="button" href="/admin/system/tools/logfile.cgi?logfile=plugins/modbusgateway/'. $entry. '&header=html&format=template" target="_blank" data-inline="true" data-mini="true">'.$entry. '</a>';
+          echo '<a id="btnlogs" data-role="button" href="/admin/system/tools/logfile.cgi?logfile=plugins/modbusgateway/'. urlencode($entry). '&header=html&format=template" target="_blank" data-inline="true" data-mini="true">'. htmlspecialchars($entry, ENT_QUOTES, 'UTF-8'). '</a>';
           echo '</div>';
         }
     }

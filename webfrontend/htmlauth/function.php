@@ -44,9 +44,10 @@ function zmata_conf($confdir, $device, $speed, $mode, $trx_control, $port, $maxc
 }
 
 function zmata_system_port_used($port) {
-  $out = shell_exec('ss -tlnH sport = :'. intval($port). ' 2>/dev/null');
+  $p = intval($port);
+  $out = shell_exec('ss -tlnH sport = :'. $p. ' 2>/dev/null');
   if ($out === null) {
-    $out = shell_exec('netstat -tlnp 2>/dev/null | grep :'. intval($port). ' ');
+    $out = shell_exec('netstat -tlnp 2>/dev/null | grep -E ":'. $p. '\b"');
   }
   return !empty(trim($out));
 }
@@ -55,15 +56,18 @@ function zmata_next_port($confdir, $baseport = 502) {
   $usedports = array();
   $mask = $confdir. '/mbusd-*.conf';
   foreach (glob($mask) as $file) {
-    $cfg = new Config_Lite("$file");
-    $port = $cfg->get(null, "port");
-    if ($port) {
-      $usedports[] = intval($port);
-    }
+    try {
+      $cfg = new Config_Lite("$file");
+      $port = $cfg->get(null, "port");
+      if ($port) {
+        $usedports[] = intval($port);
+      }
+    } catch (Exception $e) {}
   }
   $port = $baseport;
   while (in_array($port, $usedports) || zmata_system_port_used($port)) {
     $port++;
+    if ($port > 65535) return false;
   }
   return strval($port);
 }
@@ -71,16 +75,18 @@ function zmata_next_port($confdir, $baseport = 502) {
 function zmata_port_in_use($confdir, $port, $excludedevice = null) {
   $mask = $confdir. '/mbusd-*.conf';
   foreach (glob($mask) as $file) {
-    $cfg = new Config_Lite("$file");
-    $existingport = $cfg->get(null, "port");
-    if (intval($existingport) == intval($port)) {
-      $devpath = $cfg->get(null, "device");
-      $parts = explode("/", $devpath);
-      $dev = end($parts);
-      if ($excludedevice === null || $dev !== $excludedevice) {
-        return $dev;
+    try {
+      $cfg = new Config_Lite("$file");
+      $existingport = $cfg->get(null, "port");
+      if (intval($existingport) == intval($port)) {
+        $devpath = $cfg->get(null, "device");
+        $parts = explode("/", $devpath);
+        $dev = end($parts);
+        if ($excludedevice === null || $dev !== $excludedevice) {
+          return $dev;
+        }
       }
-    }
+    } catch (Exception $e) {}
   }
   if (zmata_system_port_used($port)) {
     return 'SYSTEM (another service)';

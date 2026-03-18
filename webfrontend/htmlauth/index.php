@@ -63,9 +63,31 @@ if ($_POST['save_settings']) {
   if (substr($newpath, -1) !== '/') {
     $newpath .= '/';
   }
-  $scfg->set(null, "SERIAL", $newpath);
-  $scfg->save();
-  $settings_saved = true;
+  if (!empty($newpath) && $newpath !== '/' && is_dir($newpath)) {
+    $oldpath = $scfg->get(null, "SERIAL");
+    if (!$oldpath) $oldpath = '/dev/serial/by-id/';
+    $scfg->set(null, "SERIAL", $newpath);
+    $scfg->save();
+    // F1: update all existing .conf files with new serial path
+    if ($oldpath !== $newpath) {
+      $mask = $lbpconfigdir. '/mbusd-*.conf';
+      foreach (glob($mask) as $conffile) {
+        try {
+          $c = new Config_Lite("$conffile");
+          $olddev = $c->get(null, "device");
+          if ($olddev && strpos($olddev, $oldpath) === 0) {
+            $devname = substr($olddev, strlen($oldpath));
+            $c->setQuoteStrings(False);
+            $c->set(null, "device", $newpath. $devname);
+            $c->save();
+          }
+        } catch (Exception $e) {}
+      }
+    }
+    $settings_saved = true;
+  } else {
+    $settings_error = $newpath. ' is not a valid directory';
+  }
 }
 
 if ($_POST['req_start']) {
@@ -96,6 +118,7 @@ if ($_POST['req_stop']) {
 if ($_POST['save_new']) {
   zmata_csrf_check();
   $nextport = zmata_next_port($lbpconfigdir);
+  if ($nextport === false) { die('No available TCP port found'); }
   zmata_conf($lbpconfigdir, $post_device, '9600', '8n1', 'addc', $nextport, '32', '60', '3', '100', '500');
   zmata_cfg($lbpconfigdir, $post_device, '2');
   header ("Location: index.php");
@@ -214,12 +237,15 @@ else {
   $mask = $lbpconfigdir. "/mbusd-*.conf";
   foreach (glob($mask) as $file) {
     // read conf file
-    $cfg = new Config_Lite("$file");
+    try {
+      $cfg = new Config_Lite("$file");
+    } catch (Exception $e) { continue; }
     $devfile=$cfg->get(null,"device");
+    if (!$devfile) continue;
     $device = basename($devfile);
     $command = escapeshellarg($lbpbindir. '/service.sh'). ' status '. escapeshellarg('mbusd@'. $device. '.service'). ' | grep Active';
     $cmd = shell_exec($command);
-    $status = substr($cmd,11,6);
+    $status = ($cmd !== null && strpos($cmd, 'Active: active') !== false) ? 'active' : 'inacti';
     echo '<div class="ui-corner-all ui-shadow ui-field-contain">';
     echo '<form action="index.php" method="post">';
     echo zmata_csrf_field();
@@ -227,13 +253,13 @@ else {
     echo '<input type="hidden" name="status" value="'. zmata_sanitize_html($status). '">';
     echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="delete" type="submit" name="req_del" value='. $L['GATEWAYS.DEL']. '>';
     echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="info" type="submit" name="show_detail" value='. zmata_sanitize_html($device). '>';
-    if (substr($cmd,3,16) == 'Active: inactive')
-      echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="check" type="submit" name="req_start" value='. $L['GATEWAYS.START']. '>';
-    elseif (substr($cmd,3,15) == 'Active: active ') 
+    if ($cmd !== null && strpos($cmd, 'Active: active') !== false)
       echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="delete" type="submit" name="req_stop" value='. $L['GATEWAYS.STOP']. '>';
+    elseif ($cmd !== null && strpos($cmd, 'Active: inactive') !== false)
+      echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="check" type="submit" name="req_start" value='. $L['GATEWAYS.START']. '>';
     else {
       echo '<input data-role="button" data-inline="true" data-mini="true" data-icon="check" type="submit" name="req_start" value='. $L['GATEWAYS.START']. '>';
-      echo $cmd;
+      if ($cmd) echo zmata_sanitize_html($cmd);
     }
     // check for serial device conflict with other processes
     $dev_lock = zmata_device_in_use($lbpconfigdir, $device);
@@ -286,6 +312,9 @@ else {
   if (isset($settings_saved)) {
     echo '<p style="color:green;font-weight:bold;">'. $L['SETTINGS.SAVED']. '</p>';
   }
+  if (isset($settings_error)) {
+    echo '<p style="color:red;font-weight:bold;">'. zmata_sanitize_html($settings_error). '</p>';
+  }
   echo '<input data-role="button" data-inline="true" data-mini="true" type="submit" name="save_settings" value="'. $L['SETTINGS.SAVE']. '">';
   echo '</form>';
   echo '</div>';
@@ -296,7 +325,13 @@ else {
     echo '<p class="wide">'. $L['GWDETAIL.HEAD']. '</p>';
     // read conf file
     $file = $lbpconfigdir. '/mbusd-'. $gwdevice. '.conf';
-    $cfg = new Config_Lite("$file");
+    try {
+      $cfg = new Config_Lite("$file");
+    } catch (Exception $e) {
+      echo '<p style="color:red;">Error reading config: '. zmata_sanitize_html($e->getMessage()). '</p>';
+      $cfg = null;
+    }
+    if ($cfg) {
     $devfile=$cfg->get(null,"device");
     echo '<div>';
     if (isset($port_error)) {
@@ -353,8 +388,12 @@ else {
     echo '<input data-inline="true" data-mini="true" name="wait" id="wait" placeholder="Text input" value='. $wait. ' type="text">';
     // read cfg file
     $filecfg = $lbpconfigdir. '/mbusd-'. $gwdevice. '.cfg';
-    $cfg = new Config_Lite("$filecfg");
-    $loglevel=$cfg->get(null,"OPTIONS");
+    try {
+      $cfglog = new Config_Lite("$filecfg");
+      $loglevel=$cfglog->get(null,"OPTIONS");
+    } catch (Exception $e) {
+      $loglevel = '-v2';
+    }
     echo '<label for="loglevel">'. $L['GWDETAIL.LOGLEVEL1']. ' <i>('. $L['GWDETAIL.LOGLEVEL2']. ')</i></label>';
     echo '<select data-inline="true" data-mini="true" name="loglevel" id="loglevel">';
       echo zmata_option_set("0", "-v", "", $loglevel);
@@ -371,6 +410,7 @@ else {
     echo '<br><input data-role="button" data-inline="true" data-mini="true" type="submit" name="change" value='. $L['GWDETAIL.SUBMIT']. '>';
     echo '</form>';
     echo '</div>';
+    } // end if ($cfg)
   }
 }
 

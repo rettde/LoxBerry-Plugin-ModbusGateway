@@ -57,5 +57,16 @@ echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
 echo "<INFO> Plugin SBIN folder is: $PSBIN"
 echo "<INFO> Plugin BIN folder is: $PBIN"
 
+echo "<INFO> Stopping and disabling all mbusd services"
+for svc in $(systemctl list-units --full --no-legend 'mbusd@*.service' 2>/dev/null | awk '{print $1}'); do
+  echo "<INFO> Stopping $svc"
+  systemctl stop "$svc" 2>/dev/null
+  systemctl disable "$svc" 2>/dev/null
+done
+
+echo "<INFO> Removing systemd service file"
+rm -f /lib/systemd/system/mbusd@.service
+systemctl daemon-reload
+
 # Exit with Status 0
 exit 0
